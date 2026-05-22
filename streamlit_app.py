@@ -70,13 +70,13 @@ def generate_quiz(file_data, file_type, difficulty, types, count):
     else:
         content.append({"type": "image", "source": {"type": "base64", "media_type": file_type, "data": file_data}})
     content.append({"type": "text", "text": f"위 문서를 분석하여 {diff_desc} {type_desc} 문제를 정확히 {count}개 만들어주세요. 난이도: {difficulty}"})
-    response = client.messages.create(model="claude-sonnet-4-20250514", max_tokens=4000, system=system_prompt, messages=[{"role": "user", "content": content}])
+    response = client.messages.create(model="claude-3-5-sonnet-20241022", max_tokens=4000, system=system_prompt, messages=[{"role": "user", "content": content}])
     return json.loads(response.content[0].text.replace("```json", "").replace("```", "").strip())
 
 def grade_quiz(quiz, answers):
     grading_data = [{"id": q["id"], "question": q["question"], "type": q["type"], "answer": q["answer"], "keywords": q["keywords"], "userAnswer": answers.get(q["id"], "")} for q in quiz["questions"]]
     response = client.messages.create(
-        model="claude-sonnet-4-20250514", max_tokens=2000,
+        model="claude-3-5-sonnet-20241022", max_tokens=2000,
         system='채점 전문가입니다. JSON만 출력하세요. {"scores":[{"id":1,"score":0~100,"matched_keywords":["키워드"],"feedback":"피드백"}],"total":0~100}',
         messages=[{"role": "user", "content": f"채점:\n{json.dumps(grading_data, ensure_ascii=False)}"}]
     )
