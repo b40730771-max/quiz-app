@@ -168,7 +168,7 @@ def page_login():
 
 def page_generate():
     user = st.session_state.user
-    col1, col2 = st.columns() # 인자 추가
+    col1, col2 = st.columns(2) # 인자 추가
     with col1:
         st.title("📝 AI 퀴즈 생성기")
         st.caption(f"안녕하세요, {user['name']}님!")
@@ -210,7 +210,7 @@ def page_generate():
         else:
             for i, h in enumerate(history):
                 with st.container(border=True):
-                    c1, c2 = st.columns() # 인자 추가
+                    c1, c2 = st.columns(2) # 인자 추가
                     with c1:
                         st.markdown(f"**{h['title']}**")
                         st.caption(f"{h['created_at']} · {h['file_name']}")
