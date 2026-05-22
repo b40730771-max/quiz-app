@@ -61,42 +61,60 @@ def score_color(s):
     return "🔴"
 
 def generate_quiz(file_data, file_type, difficulty, types, count):
-    # 1. 변수 정의 (이 부분이 누락되었거나 조건문 안에 갇혀있을 수 있습니다)
     type_desc = ", ".join(types)
     diff_desc = "기본 개념과 정의를 묻는" if difficulty == "개념" else "개념을 응용하고 분석하는"
     
     system_prompt = '당신은 교육용 퀴즈 생성 전문가입니다. 반드시 JSON만 출력하세요. {"title":"제목","keywords":["키워드"],"questions":[{"id":1,"type":"단답형 또는 서술형","question":"문제","answer":"모범답안","keywords":["채점키워드"],"explanation":"해설"}]}'
     
-    content = []
-    
-    # 파일 타입에 따른 처리
+    # 1. 파일 데이터 구조 생성
     if file_type == "application/pdf":
-        content.append({
+        source_item = {
             "type": "document",
-            "source": {"type": "base64", "media_type": "application/pdf", "data": file_data}
-        })
+            "source": {
+                "type": "base64",
+                "media_type": "application/pdf",
+                "data": file_data
+            }
+        }
     else:
-        content.append({
+        # 이미지 타입 호환성 체크 (image/jpg -> image/jpeg 변환 등)
+        mime_type = file_type if file_type != "image/jpg" else "image/jpeg"
+        source_item = {
             "type": "image",
-            "source": {"type": "base64", "media_type": file_type, "data": file_data}
-        })
-    
-    # 2. 문제 생성 요청 텍스트 추가 (여기서 diff_desc와 type_desc를 사용함)
-    content.append({
-        "type": "text",
-        "text": f"위 문서를 분석하여 {diff_desc} {type_desc} 문제를 정확히 {count}개 만들어주세요. 난이도: {difficulty}"
-    })
+            "source": {
+                "type": "base64",
+                "media_type": mime_type,
+                "data": file_data
+            }
+        }
 
-    # Anthropic API 호출 (PDF 지원을 위해 betas 인자 추가 권장)
-    response = client.beta.messages.create(
-        model="claude-3-5-sonnet-20241022",
-        betas=["pdfs-2024-09-25"], 
-        max_tokens=4000,
-        system=system_prompt,
-        messages=[{"role": "user", "content": content}]
-    )
-    
-    return json.loads(response.content.text.replace("```json", "").replace("```", "").strip())
+    # 2. 메시지 구성 (Anthropic 규격: 리스트 안에 딕셔너리)
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                source_item,
+                {
+                    "type": "text",
+                    "text": f"위 문서를 분석하여 {diff_desc} {type_desc} 문제를 정확히 {count}개 만들어주세요. 난이도: {difficulty}"
+                }
+            ]
+        }
+    ]
+
+    # 3. API 호출
+    try:
+        response = client.beta.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            betas=["pdfs-2024-09-25"], 
+            max_tokens=4000,
+            system=system_prompt,
+            messages=messages
+        )
+        return json.loads(response.content.text.replace("```json", "").replace("```", "").strip())
+    except Exception as e:
+        st.error(f"API 호출 중 에러 발생: {str(e)}")
+        return None
 
 def grade_quiz(quiz, answers):
     grading_data = [{"id": q["id"], "question": q["question"], "type": q["type"], "answer": q["answer"], "keywords": q["keywords"], "userAnswer": answers.get(q["id"], "")} for q in quiz["questions"]]
