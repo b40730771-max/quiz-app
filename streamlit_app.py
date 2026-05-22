@@ -12,7 +12,12 @@ st.set_page_config(page_title="AI 퀴즈 생성기", page_icon="📝", layout="c
 # ── 연결
 @st.cache_resource
 def get_supabase():
-    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+    from supabase import ClientOptions
+    return create_client(
+        st.secrets["SUPABASE_URL"],
+        st.secrets["SUPABASE_KEY"],
+        options=ClientOptions(schema="public")
+    )
 
 supabase = get_supabase()
 client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
