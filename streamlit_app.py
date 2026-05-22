@@ -76,7 +76,7 @@ def generate_quiz(file_data, file_type, difficulty, types, count):
 
     try:
         response = client.beta.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="model="claude-3-haiku-20240307"",
             betas=["pdfs-2024-09-25"], 
             max_tokens=4000,
             system=system_prompt,
@@ -86,7 +86,13 @@ def generate_quiz(file_data, file_type, difficulty, types, count):
         json_string = raw_text.replace("```json", "").replace("```", "").strip()
         return json.loads(json_string)
     except Exception as e:
-        st.error(f"퀴즈 생성 중 오류가 발생했습니다: {str(e)}")
+        err = str(e)
+
+        if "credit balance is too low" in err:
+            st.error("Anthropic API 크레딧이 부족합니다. Billing에서 크레딧을 충전해주세요.")
+        else:
+            st.error(f"퀴즈 생성 중 오류가 발생했습니다:\n{err}")
+
         return None
 
 def grade_quiz(quiz, answers):
@@ -156,7 +162,7 @@ def page_generate():
         return
 
     user = st.session_state.user
-    col1, col2 = st.columns(2) # 인자 추가
+    col1, col2 = st.columns(3) # 인자 추가
     
     with col1:
         st.title("📝 AI 퀴즈 생성기")
