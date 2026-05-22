@@ -167,20 +167,22 @@ def page_login():
                         st.success("가입 완료! 로그인해 주세요.")
 
 def page_generate():
-    # 1. 로그인 확인 안전장치 (함수 바로 아래에 들여쓰기 필수)
+    # [보안/에러 방지] 1. 사용자 세션이 없으면 즉시 로그인 페이지로 리다이렉트
     if "user" not in st.session_state or st.session_state.user is None:
         st.session_state.page = "login"
         st.rerun()
         return
 
+    # 이제 user는 확실히 데이터가 있는 상태입니다.
     user = st.session_state.user
     
-    # 2. st.columns에 반드시 인자()를 넣으세요! (비워두면 에러 발생)
-    col1, col2 = st.columns(2) 
+    # [에러 방지] 2. st.columns() 처럼 반드시 인자를 넣으세요!
+    col1, col2 = st.columns() 
     
     with col1:
         st.title("📝 AI 퀴즈 생성기")
-        st.caption(f"안녕하세요, {user['name']}님!")
+        # 이제 여기서 에러가 나지 않습니다.
+        st.caption(f"안녕하세요, {user.get('name', '사용자')}님!") 
     
     with col2:
         if st.button("로그아웃"):
@@ -189,6 +191,7 @@ def page_generate():
             st.session_state.page = "login"
             st.rerun()
 
+    # 이하 탭 생성 및 퀴즈 로직...
     # 탭 생성
     tab1, tab2 = st.tabs(["퀴즈 생성", "히스토리"])
 
