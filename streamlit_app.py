@@ -203,33 +203,22 @@ def page_generate():
             st.session_state.page = "login"
             st.rerun()
 
-    tab1, tab2 = st.tabs(["퀴즈 생성", "히스토리"])
-
-    with tab1:
-        uploaded = st.file_uploader("PDF 또는 이미지 업로드", type=["pdf", "jpg", "jpeg", "png"])
-        col1, col2 = st.columns(2)
-        with col1:
-            difficulty = st.radio("난이도", ["개념", "응용"], horizontal=True)
-        with col2:
-            types = st.multiselect("문제 유형", ["단답형", "서술형"], default=["단답형"])
-        count = st.slider("문제 수", 3, 20, 5)
-        # page_generate 함수 내부의 버튼 부분
-if st.button("🚀 퀴즈 생성하기", disabled=not uploaded or not types):
-    with st.spinner("AI가 문제를 생성하고 있어요..."):
-        file_data = encode_file(uploaded)
-        quiz = generate_quiz(file_data, uploaded.type, difficulty, types, count)
+    if st.button("🚀 퀴즈 생성하기", disabled=not uploaded or not types):
+        with st.spinner("AI가 문제를 생성하고 있어요..."):
+            file_data = encode_file(uploaded)
+            quiz = generate_quiz(file_data, uploaded.type, difficulty, types, count)
         
-        if quiz: # 퀴즈가 성공적으로 생성된 경우에만 페이지 이동
-            st.session_state.quiz = quiz
-            st.session_state.answers = {}
-            st.session_state.file_name = uploaded.name
-            st.session_state.difficulty = difficulty
-            st.session_state.types = types
-            st.session_state.page = "taking"
-            st.rerun()
-        else:
+            if quiz: # 퀴즈가 성공적으로 생성된 경우에만 페이지 이동
+                st.session_state.quiz = quiz
+                st.session_state.answers = {}
+                st.session_state.file_name = uploaded.name
+                st.session_state.difficulty = difficulty
+                st.session_state.types = types
+                st.session_state.page = "taking"
+                st.rerun()
+            else:
             # 퀴즈 생성 실패 시 경고창 (이미 generate_quiz에서 에러 메시지를 띄웠을 것임)
-            st.error("퀴즈를 생성하지 못했습니다. 파일이나 설정을 확인해 주세요.")
+                st.error("퀴즈를 생성하지 못했습니다. 파일이나 설정을 확인해 주세요.")
 
     with tab2:
         history = load_history()
