@@ -67,26 +67,12 @@ def generate_quiz(file_data, file_type, difficulty, types, count):
     system_prompt = '당신은 교육용 퀴즈 생성 전문가입니다. 반드시 JSON만 출력하세요. {"title":"제목","keywords":["키워드"],"questions":[{"id":1,"type":"단답형 또는 서술형","question":"문제","answer":"모범답안","keywords":["채점키워드"],"explanation":"해설"}]}'
     
     if file_type == "application/pdf":
-        source_item = {
-            "type": "document",
-            "source": {"type": "base64", "media_type": "application/pdf", "data": file_data}
-        }
+        source_item = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": file_data}}
     else:
         mime_type = file_type if file_type != "image/jpg" else "image/jpeg"
-        source_item = {
-            "type": "image",
-            "source": {"type": "base64", "media_type": mime_type, "data": file_data}
-        }
+        source_item = {"type": "image", "source": {"type": "base64", "media_type": mime_type, "data": file_data}}
 
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                source_item,
-                {"type": "text", "text": f"위 문서를 분석하여 {diff_desc} {type_desc} 문제를 정확히 {count}개 만들어주세요. 난이도: {difficulty}"}
-            ]
-        }
-    ]
+    messages = [{"role": "user", "content": [source_item, {"type": "text", "text": f"위 문서를 분석하여 {diff_desc} {type_desc} 문제를 정확히 {count}개 만들어주세요. 난이도: {difficulty}"}]}]
 
     try:
         response = client.beta.messages.create(
@@ -96,8 +82,7 @@ def generate_quiz(file_data, file_type, difficulty, types, count):
             system=system_prompt,
             messages=messages
         )
-        # 중요: response.content.text로 수정
-        raw_text = response.content.text
+        raw_text = response.content.text # 추가
         json_string = raw_text.replace("```json", "").replace("```", "").strip()
         return json.loads(json_string)
     except Exception as e:
@@ -113,7 +98,6 @@ def grade_quiz(quiz, answers):
     )
     return json.loads(response.content.text.replace("```json", "").replace("```", "").strip())
 
-# ... (save_result, load_history 함수는 동일하므로 생략 가능하나 구조상 유지)
 def save_result(result):
     sb_insert("quiz_history", {
         "user_id": st.session_state.user["id"],
@@ -134,7 +118,6 @@ def load_history():
 # ── 페이지 함수들
 def page_login():
     st.title("📝 AI 퀴즈 생성기")
-    st.caption("로그인하고 나만의 퀴즈 기록을 관리하세요")
     st.divider()
     mode = st.radio("", ["로그인", "회원가입"], horizontal=True, label_visibility="collapsed")
 
@@ -145,7 +128,7 @@ def page_login():
             if st.form_submit_button("로그인", use_container_width=True):
                 rows = sb_select("users", filters={"email": email, "password": hash_pw(pw)})
                 if rows:
-                    st.session_state.user = rows
+                    st.session_state.user = rows # rows으로 수정
                     st.session_state.page = "generate"
                     st.rerun()
                 else:
@@ -167,21 +150,16 @@ def page_login():
                         st.success("가입 완료! 로그인해 주세요.")
 
 def page_generate():
-    # [보안/에러 방지] 1. 사용자 세션이 없으면 즉시 로그인 페이지로 리다이렉트
     if "user" not in st.session_state or st.session_state.user is None:
         st.session_state.page = "login"
         st.rerun()
         return
 
-    # 이제 user는 확실히 데이터가 있는 상태입니다.
     user = st.session_state.user
-    
-    # [에러 방지] 2. st.columns() 처럼 반드시 인자를 넣으세요!
-    col1, col2 = st.columns(3) 
+    col1, col2 = st.columns(2) # 인자 추가
     
     with col1:
         st.title("📝 AI 퀴즈 생성기")
-        # 이제 여기서 에러가 나지 않습니다.
         st.caption(f"안녕하세요, {user.get('name', '사용자')}님!") 
     
     with col2:
@@ -191,66 +169,56 @@ def page_generate():
             st.session_state.page = "login"
             st.rerun()
 
-    # 이하 탭 생성 및 퀴즈 로직...
-    # 탭 생성
     tab1, tab2 = st.tabs(["퀴즈 생성", "히스토리"])
 
     with tab1:
         uploaded = st.file_uploader("PDF 또는 이미지 업로드", type=["pdf", "jpg", "jpeg", "png"])
-        
         col_d, col_t = st.columns(2)
         with col_d:
             difficulty = st.radio("난이도", ["개념", "응용"], horizontal=True)
         with col_t:
             types = st.multiselect("문제 유형", ["단답형", "서술형"], default=["단답형"])
-            
         count = st.slider("문제 수", 3, 20, 5)
 
         if st.button("🚀 퀴즈 생성하기", disabled=not uploaded or not types):
             with st.spinner("AI가 문제를 생성하고 있어요..."):
                 file_data = encode_file(uploaded)
                 quiz = generate_quiz(file_data, uploaded.type, difficulty, types, count)
-                
                 if quiz:
                     st.session_state.quiz = quiz
-                    st.session_state.answers = {}
                     st.session_state.file_name = uploaded.name
                     st.session_state.difficulty = difficulty
                     st.session_state.types = types
                     st.session_state.page = "taking"
                     st.rerun()
-                else:
-                    st.error("퀴즈 생성에 실패했습니다.")
 
     with tab2:
         history = load_history()
         if not history:
-            st.info("아직 저장된 퀴즈 기록이 없어요.")
+            st.info("기록이 없습니다.")
         else:
             for i, h in enumerate(history):
                 with st.container(border=True):
-                    # 여기도 인자를로 주면 더 예쁘게 나옵니다.
-                    c1, c2 = st.columns() 
+                    c1, c2 = st.columns() # 인자 추가
                     with c1:
                         st.markdown(f"**{h['title']}**")
                         st.caption(f"{h['created_at']} · {h['file_name']}")
                     with c2:
                         total = h['total_score']
                         st.markdown(f"### {score_color(total)} {total}")
-                    
                     if st.button("다시 보기", key=f"hist_{i}"):
                         st.session_state.hist_detail = h
                         st.session_state.page = "hist_detail"
                         st.rerun()
+
 def page_taking():
     if not st.session_state.quiz:
         st.session_state.page = "generate"
         st.rerun()
+        return
+
     quiz = st.session_state.quiz
     st.title(f"📄 {quiz['title']}")
-    if st.button("← 다시 생성"):
-        st.session_state.page = "generate"
-        st.rerun()
     
     answers = {}
     for q in quiz["questions"]:
@@ -294,7 +262,6 @@ def page_result(res):
             with st.expander("해설 보기"):
                 st.write(f"정답: {q['answer']}")
                 st.write(f"설명: {q['explanation']}")
-                if sc.get("feedback"): st.caption(f"피드백: {sc['feedback']}")
 
 # ── 라우터
 p = st.session_state.page
