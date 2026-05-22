@@ -167,11 +167,23 @@ def page_login():
                         st.success("가입 완료! 로그인해 주세요.")
 
 def page_generate():
+    def page_generate():
+    # 1. 로그인 확인 안전장치 추가
+    if "user" not in st.session_state or st.session_state.user is None:
+        st.session_state.page = "login"
+        st.rerun()
+        return
+
     user = st.session_state.user
-    col1, col2 = st.columns(2) # 인자 추가
+    
+    # 2. st.columns에 반드시 인자()를 넣으세요!
+    col1, col2 = st.columns() 
+    
     with col1:
         st.title("📝 AI 퀴즈 생성기")
+        # 여기서 user['name']을 참조하기 전에 위에서 체크했으므로 안전합니다.
         st.caption(f"안녕하세요, {user['name']}님!")
+    
     with col2:
         if st.button("로그아웃"):
             for k in ["user", "quiz", "answers", "result", "hist_detail"]:
