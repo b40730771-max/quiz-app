@@ -4,22 +4,39 @@ import base64
 import json
 import datetime
 import hashlib
-from supabase import create_client
+import requests
 
 # ── 페이지 설정
 st.set_page_config(page_title="AI 퀴즈 생성기", page_icon="📝", layout="centered")
 
-# ── 연결
-@st.cache_resource
-def get_supabase():
-    from supabase import ClientOptions
-    return create_client(
-        st.secrets["SUPABASE_URL"],
-        st.secrets["SUPABASE_KEY"],
-        options=ClientOptions(schema="public")
-    )
+# ── Supabase REST API 헬퍼
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
-supabase = get_supabase()
+def sb_headers():
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+
+def sb_select(table, filters=None, order=None):
+    url = f"{SUPABASE_URL}/rest/v1/{table}?select=*"
+    if filters:
+        for k, v in filters.items():
+            url += f"&{k}=eq.{v}"
+    if order:
+        url += f"&order={order}.desc"
+    res = requests.get(url, headers=sb_headers())
+    return res.json()
+
+def sb_insert(table, data):
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    res = requests.post(url, headers=sb_headers(), json=data)
+    return res.json()
+
+# ── Anthropic 클라이언트
 client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
 # ── 세션 초기화
@@ -66,7 +83,7 @@ def grade_quiz(quiz, answers):
     return json.loads(response.content[0].text.replace("```json", "").replace("```", "").strip())
 
 def save_result(result):
-    supabase.table("quiz_history").insert({
+    sb_insert("quiz_history", {
         "user_id": st.session_state.user["id"],
         "title": result["quiz"]["title"],
         "file_name": result["file_name"],
@@ -77,11 +94,10 @@ def save_result(result):
         "grading": result["grading"],
         "total_score": round(result["grading"]["total"]),
         "created_at": result["date"]
-    }).execute()
+    })
 
 def load_history():
-    res = supabase.table("quiz_history").select("*").eq("user_id", st.session_state.user["id"]).order("created_at", desc=True).execute()
-    return res.data or []
+    return sb_select("quiz_history", filters={"user_id": st.session_state.user["id"]}, order="created_at")
 
 # ══════════════════════════════════════════════════
 # 페이지 함수들
@@ -92,14 +108,15 @@ def page_login():
     st.caption("로그인하고 나만의 퀴즈 기록을 관리하세요")
     st.divider()
     mode = st.radio("", ["로그인", "회원가입"], horizontal=True, label_visibility="collapsed")
+
     if mode == "로그인":
         with st.form("login_form"):
             email = st.text_input("이메일")
             pw = st.text_input("비밀번호", type="password")
             if st.form_submit_button("로그인", use_container_width=True):
-                res = supabase.table("users").select("*").eq("email", email).eq("password", hash_pw(pw)).execute()
-                if res.data:
-                    st.session_state.user = res.data[0]
+                rows = sb_select("users", filters={"email": email, "password": hash_pw(pw)})
+                if rows:
+                    st.session_state.user = rows[0]
                     st.session_state.page = "generate"
                     st.rerun()
                 else:
@@ -116,11 +133,11 @@ def page_login():
                 elif not name or not email:
                     st.error("이름과 이메일을 모두 입력해 주세요.")
                 else:
-                    existing = supabase.table("users").select("id").eq("email", email).execute()
-                    if existing.data:
+                    existing = sb_select("users", filters={"email": email})
+                    if existing:
                         st.error("이미 사용 중인 이메일이에요.")
                     else:
-                        supabase.table("users").insert({"name": name, "email": email, "password": hash_pw(pw)}).execute()
+                        sb_insert("users", {"name": name, "email": email, "password": hash_pw(pw)})
                         st.success("가입 완료! 로그인해 주세요.")
 
 
