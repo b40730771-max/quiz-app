@@ -162,7 +162,7 @@ def page_generate():
         return
 
     user = st.session_state.user
-    col1, col2 = st.columns(3) # 인자 추가
+    col1, col2 = st.columns(2) # 인자 추가
     
     with col1:
         st.title("📝 AI 퀴즈 생성기")
