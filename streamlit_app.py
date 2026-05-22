@@ -177,7 +177,7 @@ def page_generate():
     user = st.session_state.user
     
     # [에러 방지] 2. st.columns() 처럼 반드시 인자를 넣으세요!
-    col1, col2 = st.columns() 
+    col1, col2 = st.columns(3) 
     
     with col1:
         st.title("📝 AI 퀴즈 생성기")
