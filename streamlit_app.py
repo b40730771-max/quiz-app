@@ -167,8 +167,7 @@ def page_login():
                         st.success("가입 완료! 로그인해 주세요.")
 
 def page_generate():
-    def page_generate():
-    # 1. 로그인 확인 안전장치 추가
+    # 1. 로그인 확인 안전장치 (함수 바로 아래에 들여쓰기 필수)
     if "user" not in st.session_state or st.session_state.user is None:
         st.session_state.page = "login"
         st.rerun()
@@ -176,12 +175,11 @@ def page_generate():
 
     user = st.session_state.user
     
-    # 2. st.columns에 반드시 인자()를 넣으세요!
+    # 2. st.columns에 반드시 인자()를 넣으세요! (비워두면 에러 발생)
     col1, col2 = st.columns() 
     
     with col1:
         st.title("📝 AI 퀴즈 생성기")
-        # 여기서 user['name']을 참조하기 전에 위에서 체크했으므로 안전합니다.
         st.caption(f"안녕하세요, {user['name']}님!")
     
     with col2:
@@ -191,21 +189,25 @@ def page_generate():
             st.session_state.page = "login"
             st.rerun()
 
+    # 탭 생성
     tab1, tab2 = st.tabs(["퀴즈 생성", "히스토리"])
 
     with tab1:
         uploaded = st.file_uploader("PDF 또는 이미지 업로드", type=["pdf", "jpg", "jpeg", "png"])
+        
         col_d, col_t = st.columns(2)
         with col_d:
             difficulty = st.radio("난이도", ["개념", "응용"], horizontal=True)
         with col_t:
             types = st.multiselect("문제 유형", ["단답형", "서술형"], default=["단답형"])
+            
         count = st.slider("문제 수", 3, 20, 5)
 
         if st.button("🚀 퀴즈 생성하기", disabled=not uploaded or not types):
             with st.spinner("AI가 문제를 생성하고 있어요..."):
                 file_data = encode_file(uploaded)
                 quiz = generate_quiz(file_data, uploaded.type, difficulty, types, count)
+                
                 if quiz:
                     st.session_state.quiz = quiz
                     st.session_state.answers = {}
@@ -214,6 +216,8 @@ def page_generate():
                     st.session_state.types = types
                     st.session_state.page = "taking"
                     st.rerun()
+                else:
+                    st.error("퀴즈 생성에 실패했습니다.")
 
     with tab2:
         history = load_history()
@@ -222,18 +226,19 @@ def page_generate():
         else:
             for i, h in enumerate(history):
                 with st.container(border=True):
-                    c1, c2 = st.columns(2) # 인자 추가
+                    # 여기도 인자를로 주면 더 예쁘게 나옵니다.
+                    c1, c2 = st.columns() 
                     with c1:
                         st.markdown(f"**{h['title']}**")
                         st.caption(f"{h['created_at']} · {h['file_name']}")
                     with c2:
                         total = h['total_score']
                         st.markdown(f"### {score_color(total)} {total}")
+                    
                     if st.button("다시 보기", key=f"hist_{i}"):
                         st.session_state.hist_detail = h
                         st.session_state.page = "hist_detail"
                         st.rerun()
-
 def page_taking():
     if not st.session_state.quiz:
         st.session_state.page = "generate"
