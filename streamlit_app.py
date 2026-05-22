@@ -82,7 +82,7 @@ def generate_quiz(file_data, file_type, difficulty, types, count):
             system=system_prompt,
             messages=messages
         )
-        raw_text = response.content.text # 추가
+        raw_text = response.content[0].text # 추가
         json_string = raw_text.replace("```json", "").replace("```", "").strip()
         return json.loads(json_string)
     except Exception as e:
@@ -96,7 +96,7 @@ def grade_quiz(quiz, answers):
         system='채점 전문가입니다. JSON만 출력하세요. {"scores":[{"id":1,"score":0~100,"matched_keywords":["키워드"],"feedback":"피드백"}],"total":0~100}',
         messages=[{"role": "user", "content": f"채점:\n{json.dumps(grading_data, ensure_ascii=False)}"}]
     )
-    return json.loads(response.content.text.replace("```json", "").replace("```", "").strip())
+    return json.loads(response.content[0].text.replace("```json", "").replace("```", "").strip())
 
 def save_result(result):
     sb_insert("quiz_history", {
@@ -104,7 +104,7 @@ def save_result(result):
         "title": result["quiz"]["title"],
         "file_name": result["file_name"],
         "difficulty": result["difficulty"],
-        "types": result["types"],
+        "types": ",".join(result["types"]),
         "quiz": result["quiz"],
         "answers": result["answers"],
         "grading": result["grading"],
@@ -128,7 +128,7 @@ def page_login():
             if st.form_submit_button("로그인", use_container_width=True):
                 rows = sb_select("users", filters={"email": email, "password": hash_pw(pw)})
                 if rows:
-                    st.session_state.user = rows # rows으로 수정
+                    st.session_state.user = rows[0] # rows으로 수정
                     st.session_state.page = "generate"
                     st.rerun()
                 else:
@@ -199,7 +199,7 @@ def page_generate():
         else:
             for i, h in enumerate(history):
                 with st.container(border=True):
-                    c1, c2 = st.columns() # 인자 추가
+                    c1, c2 = st.columns(2) # 인자 추가
                     with c1:
                         st.markdown(f"**{h['title']}**")
                         st.caption(f"{h['created_at']} · {h['file_name']}")
