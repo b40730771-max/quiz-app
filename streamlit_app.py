@@ -6,10 +6,10 @@ import datetime
 import hashlib
 from supabase import create_client
 
-# ── 페이지 설정 ───────────────────────────────────
+# ── 페이지 설정
 st.set_page_config(page_title="AI 퀴즈 생성기", page_icon="📝", layout="centered")
 
-# ── Supabase 연결 ─────────────────────────────────
+# ── 연결
 @st.cache_resource
 def get_supabase():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -17,63 +17,18 @@ def get_supabase():
 supabase = get_supabase()
 client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 
-# ── 비밀번호 해싱 ─────────────────────────────────
-def hash_pw(pw):
-    return hashlib.sha256(pw.encode()).hexdigest()
-
-# ── 세션 초기화 ───────────────────────────────────
-for k, v in {"user": None, "quiz": None, "answers": {}, "result": None,
-             "page": "login", "hist_detail": None, "file_name": "",
-             "difficulty": "개념", "types": ["단답형"]}.items():
+# ── 세션 초기화
+defaults = {"user": None, "quiz": None, "answers": {}, "result": None,
+            "page": "login", "hist_detail": None, "file_name": "",
+            "difficulty": "개념", "types": ["단답형"]}
+for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ══════════════════════════════════════════════════
-# 로그인 / 회원가입 페이지
-# ══════════════════════════════════════════════════
-def show_login():
-    st.title("📝 AI 퀴즈 생성기")
-    st.caption("로그인하고 나만의 퀴즈 기록을 관리하세요")
-    st.divider()
+# ── 유틸
+def hash_pw(pw):
+    return hashlib.sha256(pw.encode()).hexdigest()
 
-    mode = st.radio("", ["로그인", "회원가입"], horizontal=True, label_visibility="collapsed")
-
-    if mode == "로그인":
-        with st.form("login_form"):
-            email = st.text_input("이메일")
-            pw = st.text_input("비밀번호", type="password")
-            submitted = st.form_submit_button("로그인", use_container_width=True)
-            if submitted:
-                res = supabase.table("users").select("*").eq("email", email).eq("password", hash_pw(pw)).execute()
-                if res.data:
-                    st.session_state.user = res.data[0]
-                    st.session_state.page = "generate"
-                    st.rerun()
-                else:
-                    st.error("이메일 또는 비밀번호가 올바르지 않아요.")
-    else:
-        with st.form("signup_form"):
-            name = st.text_input("이름")
-            email = st.text_input("이메일")
-            pw = st.text_input("비밀번호", type="password")
-            pw2 = st.text_input("비밀번호 확인", type="password")
-            submitted = st.form_submit_button("회원가입", use_container_width=True)
-            if submitted:
-                if pw != pw2:
-                    st.error("비밀번호가 일치하지 않아요.")
-                elif not name or not email:
-                    st.error("이름과 이메일을 모두 입력해 주세요.")
-                else:
-                    existing = supabase.table("users").select("id").eq("email", email).execute()
-                    if existing.data:
-                        st.error("이미 사용 중인 이메일이에요.")
-                    else:
-                        supabase.table("users").insert({"name": name, "email": email, "password": hash_pw(pw)}).execute()
-                        st.success("가입 완료! 로그인해 주세요.")
-
-# ══════════════════════════════════════════════════
-# 유틸
-# ══════════════════════════════════════════════════
 def encode_file(f):
     f.seek(0)
     return base64.b64encode(f.read()).decode("utf-8")
@@ -86,9 +41,7 @@ def score_color(s):
 def generate_quiz(file_data, file_type, difficulty, types, count):
     type_desc = ", ".join(types)
     diff_desc = "기본 개념과 정의를 묻는" if difficulty == "개념" else "개념을 응용하고 분석하는"
-    system_prompt = """당신은 교육용 퀴즈 생성 전문가입니다. 첨부된 문서/이미지를 분석하여 퀴즈를 생성하세요.
-반드시 아래 JSON 형식만 출력하세요.
-{"title":"퀴즈 제목","keywords":["핵심 키워드"],"questions":[{"id":1,"type":"단답형 또는 서술형","question":"문제","answer":"모범 답안","keywords":["채점 키워드"],"explanation":"해설"}]}"""
+    system_prompt = '당신은 교육용 퀴즈 생성 전문가입니다. 반드시 JSON만 출력하세요. {"title":"제목","keywords":["키워드"],"questions":[{"id":1,"type":"단답형 또는 서술형","question":"문제","answer":"모범답안","keywords":["채점키워드"],"explanation":"해설"}]}'
     content = []
     if file_type == "application/pdf":
         content.append({"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": file_data}})
@@ -126,11 +79,48 @@ def load_history():
     return res.data or []
 
 # ══════════════════════════════════════════════════
-# 퀴즈 생성 페이지
+# 페이지 함수들
 # ══════════════════════════════════════════════════
-elif st.session_state.page == "generate":
-    user = st.session_state.user
 
+def page_login():
+    st.title("📝 AI 퀴즈 생성기")
+    st.caption("로그인하고 나만의 퀴즈 기록을 관리하세요")
+    st.divider()
+    mode = st.radio("", ["로그인", "회원가입"], horizontal=True, label_visibility="collapsed")
+    if mode == "로그인":
+        with st.form("login_form"):
+            email = st.text_input("이메일")
+            pw = st.text_input("비밀번호", type="password")
+            if st.form_submit_button("로그인", use_container_width=True):
+                res = supabase.table("users").select("*").eq("email", email).eq("password", hash_pw(pw)).execute()
+                if res.data:
+                    st.session_state.user = res.data[0]
+                    st.session_state.page = "generate"
+                    st.rerun()
+                else:
+                    st.error("이메일 또는 비밀번호가 올바르지 않아요.")
+    else:
+        with st.form("signup_form"):
+            name = st.text_input("이름")
+            email = st.text_input("이메일")
+            pw = st.text_input("비밀번호", type="password")
+            pw2 = st.text_input("비밀번호 확인", type="password")
+            if st.form_submit_button("회원가입", use_container_width=True):
+                if pw != pw2:
+                    st.error("비밀번호가 일치하지 않아요.")
+                elif not name or not email:
+                    st.error("이름과 이메일을 모두 입력해 주세요.")
+                else:
+                    existing = supabase.table("users").select("id").eq("email", email).execute()
+                    if existing.data:
+                        st.error("이미 사용 중인 이메일이에요.")
+                    else:
+                        supabase.table("users").insert({"name": name, "email": email, "password": hash_pw(pw)}).execute()
+                        st.success("가입 완료! 로그인해 주세요.")
+
+
+def page_generate():
+    user = st.session_state.user
     col1, col2 = st.columns([4, 1])
     with col1:
         st.title("📝 AI 퀴즈 생성기")
@@ -152,7 +142,6 @@ elif st.session_state.page == "generate":
         with col2:
             types = st.multiselect("문제 유형", ["단답형", "서술형"], default=["단답형"])
         count = st.slider("문제 수", 3, 20, 5)
-
         if st.button("🚀 퀴즈 생성하기", disabled=not uploaded or not types):
             with st.spinner("AI가 문제를 생성하고 있어요..."):
                 file_data = encode_file(uploaded)
@@ -186,30 +175,24 @@ elif st.session_state.page == "generate":
                         st.session_state.page = "hist_detail"
                         st.rerun()
 
-# ══════════════════════════════════════════════════
-# 퀴즈 풀기 페이지
-# ══════════════════════════════════════════════════
-elif page == "taking":
+
+def page_taking():
     quiz = st.session_state.quiz
     st.title(f"📄 {quiz['title']}")
     st.caption(f"난이도: {st.session_state.difficulty} · {', '.join(st.session_state.types)} · {len(quiz['questions'])}문제")
-
     if st.button("← 다시 생성"):
         st.session_state.page = "generate"
         st.rerun()
-
     answers = {}
     for i, q in enumerate(quiz["questions"]):
         with st.container(border=True):
             st.caption("📌 단답형" if q["type"] == "단답형" else "📝 서술형")
             st.markdown(f"**Q{i+1}. {q['question']}**")
             if q["type"] == "단답형":
-                answers[q["id"]] = st.text_input("답 입력", key=f"ans_{q['id']}", label_visibility="collapsed")
+                answers[q["id"]] = st.text_input("답", key=f"ans_{q['id']}", label_visibility="collapsed")
             else:
-                answers[q["id"]] = st.text_area("답 서술", key=f"ans_{q['id']}", height=120, label_visibility="collapsed")
-
+                answers[q["id"]] = st.text_area("답", key=f"ans_{q['id']}", height=120, label_visibility="collapsed")
     st.session_state.answers = answers
-
     if st.button("✅ 제출 및 채점하기"):
         with st.spinner("채점 중..."):
             grading = grade_quiz(quiz, answers)
@@ -227,17 +210,12 @@ elif page == "taking":
             st.session_state.page = "result"
             st.rerun()
 
-# ══════════════════════════════════════════════════
-# 결과 / 히스토리 상세 페이지
-# ══════════════════════════════════════════════════
-elif page in ("result", "hist_detail"):
-    res = st.session_state.result if st.session_state.page == "result" else st.session_state.hist_detail
-    g = res["grading"]
 
+def page_result(res):
+    g = res["grading"]
     if st.button("← 뒤로"):
         st.session_state.page = "generate"
         st.rerun()
-
     col1, col2 = st.columns([3, 1])
     with col1:
         st.title(res["quiz"]["title"])
@@ -245,9 +223,7 @@ elif page in ("result", "hist_detail"):
     with col2:
         total = round(g["total"])
         st.metric("총점", f"{score_color(total)} {total}점")
-
     st.divider()
-
     for i, q in enumerate(res["quiz"]["questions"]):
         sc = next((s for s in g["scores"] if s["id"] == q["id"]), {})
         score = round(sc.get("score", 0))
@@ -265,3 +241,20 @@ elif page in ("result", "hist_detail"):
                 st.write(q["explanation"])
                 if sc.get("feedback"):
                     st.caption(sc["feedback"])
+
+
+# ══════════════════════════════════════════════════
+# 라우터
+# ══════════════════════════════════════════════════
+p = st.session_state.page
+
+if p == "login":
+    page_login()
+elif p == "generate":
+    page_generate()
+elif p == "taking":
+    page_taking()
+elif p == "result":
+    page_result(st.session_state.result)
+elif p == "hist_detail":
+    page_result(st.session_state.hist_detail)
