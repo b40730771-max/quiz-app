@@ -31,7 +31,7 @@ for k, v in {"user": None, "quiz": None, "answers": {}, "result": None,
 # ══════════════════════════════════════════════════
 # 로그인 / 회원가입 페이지
 # ══════════════════════════════════════════════════
-if st.session_state.page == "login":
+def show_login():
     st.title("📝 AI 퀴즈 생성기")
     st.caption("로그인하고 나만의 퀴즈 기록을 관리하세요")
     st.divider()
@@ -51,7 +51,6 @@ if st.session_state.page == "login":
                     st.rerun()
                 else:
                     st.error("이메일 또는 비밀번호가 올바르지 않아요.")
-
     else:
         with st.form("signup_form"):
             name = st.text_input("이름")
@@ -190,7 +189,7 @@ elif st.session_state.page == "generate":
 # ══════════════════════════════════════════════════
 # 퀴즈 풀기 페이지
 # ══════════════════════════════════════════════════
-elif st.session_state.page == "taking":
+elif page == "taking":
     quiz = st.session_state.quiz
     st.title(f"📄 {quiz['title']}")
     st.caption(f"난이도: {st.session_state.difficulty} · {', '.join(st.session_state.types)} · {len(quiz['questions'])}문제")
@@ -231,7 +230,7 @@ elif st.session_state.page == "taking":
 # ══════════════════════════════════════════════════
 # 결과 / 히스토리 상세 페이지
 # ══════════════════════════════════════════════════
-elif st.session_state.page in ("result", "hist_detail"):
+elif page in ("result", "hist_detail"):
     res = st.session_state.result if st.session_state.page == "result" else st.session_state.hist_detail
     g = res["grading"]
 
