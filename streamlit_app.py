@@ -111,9 +111,15 @@ def generate_quiz(file_data, file_type, difficulty, types, count):
             system=system_prompt,
             messages=messages
         )
-        return json.loads(response.content.text.replace("```json", "").replace("```", "").strip())
+        
+        # JSON 응답 정제 및 파싱
+        raw_text = response.content.text
+        json_string = raw_text.replace("```json", "").replace("```", "").strip()
+        return json.loads(json_string)
+        
     except Exception as e:
-        st.error(f"API 호출 중 에러 발생: {str(e)}")
+        # 에러 발생 시 사용자에게 알리고 None 반환
+        st.error(f"퀴즈 생성 중 오류가 발생했습니다: {str(e)}")
         return None
 
 def grade_quiz(quiz, answers):
@@ -207,17 +213,23 @@ def page_generate():
         with col2:
             types = st.multiselect("문제 유형", ["단답형", "서술형"], default=["단답형"])
         count = st.slider("문제 수", 3, 20, 5)
-        if st.button("🚀 퀴즈 생성하기", disabled=not uploaded or not types):
-            with st.spinner("AI가 문제를 생성하고 있어요..."):
-                file_data = encode_file(uploaded)
-                quiz = generate_quiz(file_data, uploaded.type, difficulty, types, count)
-                st.session_state.quiz = quiz
-                st.session_state.answers = {}
-                st.session_state.file_name = uploaded.name
-                st.session_state.difficulty = difficulty
-                st.session_state.types = types
-                st.session_state.page = "taking"
-                st.rerun()
+        # page_generate 함수 내부의 버튼 부분
+if st.button("🚀 퀴즈 생성하기", disabled=not uploaded or not types):
+    with st.spinner("AI가 문제를 생성하고 있어요..."):
+        file_data = encode_file(uploaded)
+        quiz = generate_quiz(file_data, uploaded.type, difficulty, types, count)
+        
+        if quiz: # 퀴즈가 성공적으로 생성된 경우에만 페이지 이동
+            st.session_state.quiz = quiz
+            st.session_state.answers = {}
+            st.session_state.file_name = uploaded.name
+            st.session_state.difficulty = difficulty
+            st.session_state.types = types
+            st.session_state.page = "taking"
+            st.rerun()
+        else:
+            # 퀴즈 생성 실패 시 경고창 (이미 generate_quiz에서 에러 메시지를 띄웠을 것임)
+            st.error("퀴즈를 생성하지 못했습니다. 파일이나 설정을 확인해 주세요.")
 
     with tab2:
         history = load_history()
@@ -242,6 +254,12 @@ def page_generate():
 
 
 def page_taking():
+    if "quiz" not in st.session_state or st.session_state.quiz is None:
+        st.warning("퀴즈 데이터가 없습니다. 다시 생성해 주세요.")
+        if st.button("홈으로 이동"):
+            st.session_state.page = "generate"
+            st.rerun()
+        return
     quiz = st.session_state.quiz
     st.title(f"📄 {quiz['title']}")
     st.caption(f"난이도: {st.session_state.difficulty} · {', '.join(st.session_state.types)} · {len(quiz['questions'])}문제")
