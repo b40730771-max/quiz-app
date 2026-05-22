@@ -192,7 +192,7 @@ def page_login():
 
 def page_generate():
     user = st.session_state.user
-    col1, col2 = st.columns([4, 1])
+    col1, col2 = st.columns()
     with col1:
         st.title("📝 AI 퀴즈 생성기")
         st.caption(f"안녕하세요, {user['name']}님!")
@@ -203,22 +203,37 @@ def page_generate():
             st.session_state.page = "login"
             st.rerun()
 
-    if st.button("🚀 퀴즈 생성하기", disabled=not uploaded or not types):
-        with st.spinner("AI가 문제를 생성하고 있어요..."):
-            file_data = encode_file(uploaded)
-            quiz = generate_quiz(file_data, uploaded.type, difficulty, types, count)
+    # 탭 생성
+    tab1, tab2 = st.tabs(["퀴즈 생성", "히스토리"])
+
+    with tab1:
+        # 1. 입력 변수들을 먼저 정의해야 합니다.
+        uploaded = st.file_uploader("PDF 또는 이미지 업로드", type=["pdf", "jpg", "jpeg", "png"])
         
-            if quiz: # 퀴즈가 성공적으로 생성된 경우에만 페이지 이동
-                st.session_state.quiz = quiz
-                st.session_state.answers = {}
-                st.session_state.file_name = uploaded.name
-                st.session_state.difficulty = difficulty
-                st.session_state.types = types
-                st.session_state.page = "taking"
-                st.rerun()
-            else:
-            # 퀴즈 생성 실패 시 경고창 (이미 generate_quiz에서 에러 메시지를 띄웠을 것임)
-                st.error("퀴즈를 생성하지 못했습니다. 파일이나 설정을 확인해 주세요.")
+        col_d, col_t = st.columns(2)
+        with col_d:
+            difficulty = st.radio("난이도", ["개념", "응용"], horizontal=True)
+        with col_t:
+            types = st.multiselect("문제 유형", ["단답형", "서술형"], default=["단답형"])
+            
+        count = st.slider("문제 수", 3, 20, 5)
+
+        # 2. 모든 변수가 정의된 후에 버튼을 배치합니다.
+        if st.button("🚀 퀴즈 생성하기", disabled=not uploaded or not types):
+            with st.spinner("AI가 문제를 생성하고 있어요..."):
+                file_data = encode_file(uploaded)
+                quiz = generate_quiz(file_data, uploaded.type, difficulty, types, count)
+                
+                if quiz:
+                    st.session_state.quiz = quiz
+                    st.session_state.answers = {}
+                    st.session_state.file_name = uploaded.name
+                    st.session_state.difficulty = difficulty
+                    st.session_state.types = types
+                    st.session_state.page = "taking"
+                    st.rerun()
+                else:
+                    st.error("퀴즈를 생성하지 못했습니다. 파일이나 설정을 확인해 주세요.")
 
     with tab2:
         history = load_history()
@@ -228,19 +243,18 @@ def page_generate():
             st.caption(f"총 {len(history)}개의 기록")
             for i, h in enumerate(history):
                 with st.container(border=True):
-                    col1, col2 = st.columns([4, 1])
-                    with col1:
+                    c1, c2 = st.columns()
+                    with c1:
                         st.markdown(f"**{h['title']}**")
                         st.caption(f"{h['created_at']} · {h['file_name']} · {len(h['quiz']['questions'])}문제")
                         st.markdown(f"`{h['difficulty']}` " + " ".join([f"`{t}`" for t in h['types']]))
-                    with col2:
+                    with c2:
                         total = h['total_score']
                         st.markdown(f"### {score_color(total)} {total}점")
                     if st.button("다시 보기", key=f"hist_{i}"):
                         st.session_state.hist_detail = h
                         st.session_state.page = "hist_detail"
                         st.rerun()
-
 
 def page_taking():
     if "quiz" not in st.session_state or st.session_state.quiz is None:
