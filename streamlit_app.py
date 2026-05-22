@@ -76,7 +76,7 @@ def generate_quiz(file_data, file_type, difficulty, types, count):
 
     try:
         response = client.beta.messages.create(
-            model="model="claude-3-haiku-20240307"",
+            model="claude-3-haiku-20240307",
             betas=["pdfs-2024-09-25"], 
             max_tokens=4000,
             system=system_prompt,
