@@ -132,17 +132,30 @@ def generate_quiz(file_data, file_type, difficulty, types, count):
 ===끝==="""
     text = groq_text(prompt)
     text = text.replace("```json", "").replace("```", "").strip()
-    # JSON 시작/끝 위치 찾기
-    start = text.find("{")
-    end = text.rfind("}") + 1
-    if start == -1 or end == 0:
-        st.error(f"AI 응답에서 JSON을 찾지 못했어요. 응답 내용:\n{text[:500]}")
+    # JSON 객체 또는 배열 시작/끝 위치 찾기
+    obj_start = text.find("{")
+    arr_start = text.find("[")
+    if obj_start == -1 and arr_start == -1:
+        st.error(f"AI 응답에서 JSON을 찾지 못했어요:\n{text[:500]}")
         st.stop()
-    try:
-        return json.loads(text[start:end])
-    except json.JSONDecodeError as e:
-        st.error(f"JSON 파싱 오류: {e}\n응답 내용:\n{text[:500]}")
-        st.stop()
+    # 객체와 배열 중 먼저 나오는 것 선택
+    if arr_start != -1 and (obj_start == -1 or arr_start < obj_start):
+        start = arr_start
+        end = text.rfind("]") + 1
+        try:
+            questions = json.loads(text[start:end])
+            return {"title": "퀴즈", "keywords": [], "questions": questions}
+        except json.JSONDecodeError as e:
+            st.error(f"JSON 파싱 오류: {e}\n응답:\n{text[:500]}")
+            st.stop()
+    else:
+        start = obj_start
+        end = text.rfind("}") + 1
+        try:
+            return json.loads(text[start:end])
+        except json.JSONDecodeError as e:
+            st.error(f"JSON 파싱 오류: {e}\n응답:\n{text[:500]}")
+            st.stop()
 
 def grade_quiz(quiz, answers):
     grading_data = [{"id": q["id"], "question": q["question"], "type": q["type"],
