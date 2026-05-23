@@ -11,7 +11,7 @@ st.set_page_config(page_title="AI 퀴즈 생성기", page_icon="📝", layout="c
 # ── Supabase 헬퍼
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-GROQ_KEY     = st.secrets["GROQ_API_KEY"]
+OR_KEY = st.secrets["OPENROUTER_API_KEY"]
 
 def sb_headers():
     return {
@@ -130,7 +130,7 @@ def generate_quiz(file_data, file_type, difficulty, types, count):
 ===문서 내용===
 {content_text[:8000]}
 ===끝==="""
-    text = groq_text(prompt)
+    text = or_text(prompt)
     text = text.replace("```json", "").replace("```", "").strip()
     # JSON 객체 또는 배열 시작/끝 위치 찾기
     obj_start = text.find("{")
@@ -166,7 +166,7 @@ def grade_quiz(quiz, answers):
 {{"scores":[{{"id":1,"score":0~100,"matched_keywords":["키워드"],"feedback":"피드백"}}],"total":0~100}}
 
 {json.dumps(grading_data, ensure_ascii=False)}"""
-    text = groq_text(prompt)
+    text = or_text(prompt)
     return json.loads(text.replace("```json", "").replace("```", "").strip())
 
 def save_result(result):
