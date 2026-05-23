@@ -110,12 +110,21 @@ def generate_quiz(file_data, file_type, difficulty, types, count):
         content_text = extract_pdf_text(file_data)
     else:
         content_text = extract_image_text(file_data, file_type)
-    prompt = f"""다음 문서 내용을 분석하여 {diff_desc} {type_desc} 문제를 정확히 {count}개 만들어주세요. 난이도: {difficulty}
-반드시 JSON만 출력하세요. 다른 텍스트 없이.
+
+    # 추출된 텍스트 확인
+    if not content_text or len(content_text.strip()) < 50:
+        st.error(f"PDF에서 텍스트를 추출하지 못했어요. 추출된 내용: {content_text[:200]}")
+        st.stop()
+
+    st.info(f"📄 추출된 텍스트 미리보기 (앞 300자):\n{content_text[:300]}")
+
+    prompt = f"""아래 문서 내용만을 바탕으로 {diff_desc} {type_desc} 문제를 정확히 {count}개 만들어주세요. 난이도: {difficulty}
+절대 문서 내용과 무관한 문제를 만들지 마세요. 반드시 JSON만 출력하세요.
 {{"title":"퀴즈 제목","keywords":["핵심키워드"],"questions":[{{"id":1,"type":"단답형 또는 서술형","question":"문제","answer":"모범답안","keywords":["채점키워드"],"explanation":"해설"}}]}}
 
-문서 내용:
-{content_text[:8000]}"""
+===문서 내용===
+{content_text[:8000]}
+===끝==="""
     text = groq_text(prompt)
     return json.loads(text.replace("```json", "").replace("```", "").strip())
 
