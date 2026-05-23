@@ -37,48 +37,11 @@ def sb_insert(table, data):
     return res.json()
 
 # ── Gemini API 호출
-def upload_to_gemini(file_data, file_type):
-    """PDF/이미지를 Google File API에 업로드하고 file_uri 반환"""
-    raw = base64.b64decode(file_data)
-    # 1단계: 업로드 시작
-    headers_init = {
-        "X-Goog-Upload-Protocol": "resumable",
-        "X-Goog-Upload-Command": "start",
-        "X-Goog-Upload-Header-Content-Length": str(len(raw)),
-        "X-Goog-Upload-Header-Content-Type": file_type,
-        "Content-Type": "application/json"
-    }
-    init_res = requests.post(
-        f"https://generativelanguage.googleapis.com/upload/v1beta/files?key={GEMINI_KEY}",
-        headers=headers_init,
-        json={"file": {"display_name": "upload"}}
-    )
-    upload_url = init_res.headers.get("X-Goog-Upload-URL")
-    if not upload_url:
-        st.error("파일 업로드 URL을 가져오지 못했어요.")
-        st.stop()
-    # 2단계: 파일 전송
-    upload_res = requests.post(
-        upload_url,
-        headers={
-            "Content-Length": str(len(raw)),
-            "X-Goog-Upload-Offset": "0",
-            "X-Goog-Upload-Command": "upload, finalize"
-        },
-        data=raw
-    )
-    file_info = upload_res.json()
-    return file_info.get("file", {}).get("uri")
-
 def gemini(prompt, file_data=None, file_type=None):
     url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
     parts = []
     if file_data and file_type:
-        if file_type == "application/pdf":
-            file_uri = upload_to_gemini(file_data, file_type)
-            parts.append({"file_data": {"mime_type": file_type, "file_uri": file_uri}})
-        else:
-            parts.append({"inline_data": {"mime_type": file_type, "data": file_data}})
+        parts.append({"inline_data": {"mime_type": file_type, "data": file_data}})
     parts.append({"text": prompt})
     body = {"contents": [{"parts": parts}]}
     res = requests.post(url, json=body)
