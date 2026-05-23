@@ -58,12 +58,12 @@ def extract_pdf_text(file_data):
     doc = fitz.open(stream=raw, filetype="pdf")
     all_text = []
     for i, page in enumerate(doc):
-        pix = page.get_pixmap(dpi=100)  # dpi 낮춰서 토큰 절약
+        pix = page.get_pixmap(dpi=72)  # dpi 더 낮춰서 토큰 절약
         img_b64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
         text = extract_image_text(img_b64, "image/png")
         all_text.append(f"[페이지 {i+1}]\n{text}")
         if i < len(doc) - 1:
-            time.sleep(5)  # 페이지 사이 5초 대기
+            time.sleep(10)  # 페이지 사이 10초 대기
     doc.close()
     return "\n\n".join(all_text)
 
