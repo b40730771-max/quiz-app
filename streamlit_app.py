@@ -131,7 +131,18 @@ def generate_quiz(file_data, file_type, difficulty, types, count):
 {content_text[:8000]}
 ===끝==="""
     text = groq_text(prompt)
-    return json.loads(text.replace("```json", "").replace("```", "").strip())
+    text = text.replace("```json", "").replace("```", "").strip()
+    # JSON 시작/끝 위치 찾기
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start == -1 or end == 0:
+        st.error(f"AI 응답에서 JSON을 찾지 못했어요. 응답 내용:\n{text[:500]}")
+        st.stop()
+    try:
+        return json.loads(text[start:end])
+    except json.JSONDecodeError as e:
+        st.error(f"JSON 파싱 오류: {e}\n응답 내용:\n{text[:500]}")
+        st.stop()
 
 def grade_quiz(quiz, answers):
     grading_data = [{"id": q["id"], "question": q["question"], "type": q["type"],
