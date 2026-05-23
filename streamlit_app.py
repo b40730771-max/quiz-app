@@ -71,7 +71,7 @@ def upload_to_gemini(file_data, file_type):
     return file_info.get("file", {}).get("uri")
 
 def gemini(prompt, file_data=None, file_type=None):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
     parts = []
     if file_data and file_type:
         if file_type == "application/pdf":
