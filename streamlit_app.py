@@ -1,5 +1,4 @@
 import streamlit as st
-import anthropic
 import base64
 import json
 import datetime
@@ -9,9 +8,10 @@ import requests
 # ── 페이지 설정
 st.set_page_config(page_title="AI 퀴즈 생성기", page_icon="📝", layout="centered")
 
-# ── Supabase REST API 헬퍼
+# ── Supabase 헬퍼
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+GEMINI_KEY   = st.secrets["GEMINI_API_KEY"]
 
 def sb_headers():
     return {
@@ -29,15 +29,23 @@ def sb_select(table, filters=None, order=None):
     if order:
         url += f"&order={order}.desc"
     res = requests.get(url, headers=sb_headers())
-    return res.json()
+    return res.json() if res.ok else []
 
 def sb_insert(table, data):
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     res = requests.post(url, headers=sb_headers(), json=data)
     return res.json()
 
-# ── Anthropic 클라이언트
-client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+# ── Gemini API 호출
+def gemini(prompt, file_data=None, file_type=None):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}"
+    parts = []
+    if file_data and file_type:
+        parts.append({"inline_data": {"mime_type": file_type, "data": file_data}})
+    parts.append({"text": prompt})
+    body = {"contents": [{"parts": parts}]}
+    res = requests.post(url, json=body)
+    return res.json()["candidates"][0]["content"]["parts"][0]["text"]
 
 # ── 세션 초기화
 defaults = {"user": None, "quiz": None, "answers": {}, "result": None,
@@ -63,46 +71,23 @@ def score_color(s):
 def generate_quiz(file_data, file_type, difficulty, types, count):
     type_desc = ", ".join(types)
     diff_desc = "기본 개념과 정의를 묻는" if difficulty == "개념" else "개념을 응용하고 분석하는"
-    
-    system_prompt = '당신은 교육용 퀴즈 생성 전문가입니다. 반드시 JSON만 출력하세요. {"title":"제목","keywords":["키워드"],"questions":[{"id":1,"type":"단답형 또는 서술형","question":"문제","answer":"모범답안","keywords":["채점키워드"],"explanation":"해설"}]}'
-    
-    if file_type == "application/pdf":
-        source_item = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": file_data}}
-    else:
-        mime_type = file_type if file_type != "image/jpg" else "image/jpeg"
-        source_item = {"type": "image", "source": {"type": "base64", "media_type": mime_type, "data": file_data}}
-
-    messages = [{"role": "user", "content": [source_item, {"type": "text", "text": f"위 문서를 분석하여 {diff_desc} {type_desc} 문제를 정확히 {count}개 만들어주세요. 난이도: {difficulty}"}]}]
-
-    try:
-        response = client.beta.messages.create(
-            model="claude-3-haiku-20240307",
-            betas=["pdfs-2024-09-25"], 
-            max_tokens=4000,
-            system=system_prompt,
-            messages=messages
-        )
-        raw_text = response.content[0].text # 추가
-        json_string = raw_text.replace("```json", "").replace("```", "").strip()
-        return json.loads(json_string)
-    except Exception as e:
-        err = str(e)
-
-        if "credit balance is too low" in err:
-            st.error("Anthropic API 크레딧이 부족합니다. Billing에서 크레딧을 충전해주세요.")
-        else:
-            st.error(f"퀴즈 생성 중 오류가 발생했습니다:\n{err}")
-
-        return None
+    prompt = f"""위 문서를 분석하여 {diff_desc} {type_desc} 문제를 정확히 {count}개 만들어주세요. 난이도: {difficulty}
+반드시 아래 JSON 형식만 출력하세요. 다른 텍스트는 절대 포함하지 마세요.
+{{"title":"퀴즈 제목","keywords":["핵심키워드"],"questions":[{{"id":1,"type":"단답형 또는 서술형","question":"문제","answer":"모범답안","keywords":["채점키워드"],"explanation":"해설"}}]}}"""
+    text = gemini(prompt, file_data, file_type)
+    return json.loads(text.replace("```json", "").replace("```", "").strip())
 
 def grade_quiz(quiz, answers):
-    grading_data = [{"id": q["id"], "question": q["question"], "type": q["type"], "answer": q["answer"], "keywords": q["keywords"], "userAnswer": answers.get(q["id"], "")} for q in quiz["questions"]]
-    response = client.messages.create(
-        model="claude-3-5-sonnet-20241022", max_tokens=2000,
-        system='채점 전문가입니다. JSON만 출력하세요. {"scores":[{"id":1,"score":0~100,"matched_keywords":["키워드"],"feedback":"피드백"}],"total":0~100}',
-        messages=[{"role": "user", "content": f"채점:\n{json.dumps(grading_data, ensure_ascii=False)}"}]
-    )
-    return json.loads(response.content[0].text.replace("```json", "").replace("```", "").strip())
+    grading_data = [{"id": q["id"], "question": q["question"], "type": q["type"],
+                     "answer": q["answer"], "keywords": q["keywords"],
+                     "userAnswer": answers.get(q["id"], "")} for q in quiz["questions"]]
+    prompt = f"""다음 답안을 채점해주세요. 키워드 포함 여부로 부분 점수를 부여하세요.
+반드시 JSON만 출력하세요.
+{{"scores":[{{"id":1,"score":0~100,"matched_keywords":["키워드"],"feedback":"피드백"}}],"total":0~100}}
+
+{json.dumps(grading_data, ensure_ascii=False)}"""
+    text = gemini(prompt)
+    return json.loads(text.replace("```json", "").replace("```", "").strip())
 
 def save_result(result):
     sb_insert("quiz_history", {
@@ -110,7 +95,7 @@ def save_result(result):
         "title": result["quiz"]["title"],
         "file_name": result["file_name"],
         "difficulty": result["difficulty"],
-        "types": ",".join(result["types"]),
+        "types": result["types"],
         "quiz": result["quiz"],
         "answers": result["answers"],
         "grading": result["grading"],
@@ -121,12 +106,15 @@ def save_result(result):
 def load_history():
     return sb_select("quiz_history", filters={"user_id": st.session_state.user["id"]}, order="created_at")
 
-# ── 페이지 함수들
+# ══════════════════════════════════════════════════
+# 페이지 함수들
+# ══════════════════════════════════════════════════
+
 def page_login():
     st.title("📝 AI 퀴즈 생성기")
+    st.caption("로그인하고 나만의 퀴즈 기록을 관리하세요")
     st.divider()
     mode = st.radio("", ["로그인", "회원가입"], horizontal=True, label_visibility="collapsed")
-
     if mode == "로그인":
         with st.form("login_form"):
             email = st.text_input("이메일")
@@ -134,7 +122,7 @@ def page_login():
             if st.form_submit_button("로그인", use_container_width=True):
                 rows = sb_select("users", filters={"email": email, "password": hash_pw(pw)})
                 if rows:
-                    st.session_state.user = rows[0] # rows으로 수정
+                    st.session_state.user = rows[0]
                     st.session_state.page = "generate"
                     st.rerun()
                 else:
@@ -146,28 +134,25 @@ def page_login():
             pw = st.text_input("비밀번호", type="password")
             pw2 = st.text_input("비밀번호 확인", type="password")
             if st.form_submit_button("회원가입", use_container_width=True):
-                if pw != pw2: st.error("비밀번호가 일치하지 않아요.")
-                elif not name or not email: st.error("이름과 이메일을 모두 입력해 주세요.")
+                if pw != pw2:
+                    st.error("비밀번호가 일치하지 않아요.")
+                elif not name or not email:
+                    st.error("이름과 이메일을 모두 입력해 주세요.")
                 else:
                     existing = sb_select("users", filters={"email": email})
-                    if existing: st.error("이미 사용 중인 이메일이에요.")
+                    if existing:
+                        st.error("이미 사용 중인 이메일이에요.")
                     else:
                         sb_insert("users", {"name": name, "email": email, "password": hash_pw(pw)})
                         st.success("가입 완료! 로그인해 주세요.")
 
-def page_generate():
-    if "user" not in st.session_state or st.session_state.user is None:
-        st.session_state.page = "login"
-        st.rerun()
-        return
 
+def page_generate():
     user = st.session_state.user
-    col1, col2 = st.columns(2) # 인자 추가
-    
+    col1, col2 = st.columns([4, 1])
     with col1:
         st.title("📝 AI 퀴즈 생성기")
-        st.caption(f"안녕하세요, {user.get('name', '사용자')}님!") 
-    
+        st.caption(f"안녕하세요, {user['name']}님!")
     with col2:
         if st.button("로그아웃"):
             for k in ["user", "quiz", "answers", "result", "hist_detail"]:
@@ -176,65 +161,64 @@ def page_generate():
             st.rerun()
 
     tab1, tab2 = st.tabs(["퀴즈 생성", "히스토리"])
-
     with tab1:
         uploaded = st.file_uploader("PDF 또는 이미지 업로드", type=["pdf", "jpg", "jpeg", "png"])
-        col_d, col_t = st.columns(2)
-        with col_d:
+        col1, col2 = st.columns(2)
+        with col1:
             difficulty = st.radio("난이도", ["개념", "응용"], horizontal=True)
-        with col_t:
+        with col2:
             types = st.multiselect("문제 유형", ["단답형", "서술형"], default=["단답형"])
         count = st.slider("문제 수", 3, 20, 5)
-
         if st.button("🚀 퀴즈 생성하기", disabled=not uploaded or not types):
             with st.spinner("AI가 문제를 생성하고 있어요..."):
                 file_data = encode_file(uploaded)
                 quiz = generate_quiz(file_data, uploaded.type, difficulty, types, count)
-                if quiz:
-                    st.session_state.quiz = quiz
-                    st.session_state.file_name = uploaded.name
-                    st.session_state.difficulty = difficulty
-                    st.session_state.types = types
-                    st.session_state.page = "taking"
-                    st.rerun()
+                st.session_state.quiz = quiz
+                st.session_state.answers = {}
+                st.session_state.file_name = uploaded.name
+                st.session_state.difficulty = difficulty
+                st.session_state.types = types
+                st.session_state.page = "taking"
+                st.rerun()
 
     with tab2:
         history = load_history()
         if not history:
-            st.info("기록이 없습니다.")
+            st.info("아직 저장된 퀴즈 기록이 없어요.")
         else:
+            st.caption(f"총 {len(history)}개의 기록")
             for i, h in enumerate(history):
                 with st.container(border=True):
-                    c1, c2 = st.columns(2) # 인자 추가
-                    with c1:
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
                         st.markdown(f"**{h['title']}**")
-                        st.caption(f"{h['created_at']} · {h['file_name']}")
-                    with c2:
-                        total = h['total_score']
-                        st.markdown(f"### {score_color(total)} {total}")
+                        st.caption(f"{h['created_at']} · {h['file_name']} · {len(h['quiz']['questions'])}문제")
+                        st.markdown(f"`{h['difficulty']}` " + " ".join([f"`{t}`" for t in h['types']]))
+                    with col2:
+                        st.markdown(f"### {score_color(h['total_score'])} {h['total_score']}점")
                     if st.button("다시 보기", key=f"hist_{i}"):
                         st.session_state.hist_detail = h
                         st.session_state.page = "hist_detail"
                         st.rerun()
 
-def page_taking():
-    if not st.session_state.quiz:
-        st.session_state.page = "generate"
-        st.rerun()
-        return
 
+def page_taking():
     quiz = st.session_state.quiz
     st.title(f"📄 {quiz['title']}")
-    
+    st.caption(f"난이도: {st.session_state.difficulty} · {', '.join(st.session_state.types)} · {len(quiz['questions'])}문제")
+    if st.button("← 다시 생성"):
+        st.session_state.page = "generate"
+        st.rerun()
     answers = {}
-    for q in quiz["questions"]:
+    for i, q in enumerate(quiz["questions"]):
         with st.container(border=True):
-            st.markdown(f"**Q. {q['question']}**")
+            st.caption("📌 단답형" if q["type"] == "단답형" else "📝 서술형")
+            st.markdown(f"**Q{i+1}. {q['question']}**")
             if q["type"] == "단답형":
                 answers[q["id"]] = st.text_input("답", key=f"ans_{q['id']}", label_visibility="collapsed")
             else:
-                answers[q["id"]] = st.text_area("답", key=f"ans_{q['id']}", label_visibility="collapsed")
-    
+                answers[q["id"]] = st.text_area("답", key=f"ans_{q['id']}", height=120, label_visibility="collapsed")
+    st.session_state.answers = answers
     if st.button("✅ 제출 및 채점하기"):
         with st.spinner("채점 중..."):
             grading = grade_quiz(quiz, answers)
@@ -244,7 +228,7 @@ def page_taking():
                 "difficulty": st.session_state.difficulty,
                 "types": st.session_state.types,
                 "quiz": quiz,
-                "answers": answers,
+                "answers": dict(answers),
                 "grading": grading
             }
             save_result(result)
@@ -252,27 +236,50 @@ def page_taking():
             st.session_state.page = "result"
             st.rerun()
 
+
 def page_result(res):
+    g = res["grading"]
     if st.button("← 뒤로"):
         st.session_state.page = "generate"
         st.rerun()
-    g = res["grading"]
-    total = round(g["total"])
-    st.metric("총점", f"{score_color(total)} {total}점")
-    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.title(res["quiz"]["title"])
+        st.caption(f"{res.get('date') or res.get('created_at')} · {res['file_name']}")
+    with col2:
+        total = round(g["total"])
+        st.metric("총점", f"{score_color(total)} {total}점")
+    st.divider()
     for i, q in enumerate(res["quiz"]["questions"]):
         sc = next((s for s in g["scores"] if s["id"] == q["id"]), {})
+        score = round(sc.get("score", 0))
         with st.container(border=True):
-            st.markdown(f"**Q{i+1}. {q['question']}** ({sc.get('score', 0)}점)")
-            st.info(f"내 답변: {res['answers'].get(q['id']) or '미작성'}")
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                st.markdown(f"**Q{i+1}. {q['question']}**")
+            with col2:
+                st.markdown(f"**{score_color(score)} {score}점**")
+            st.markdown("**내 답변**")
+            st.info(res["answers"].get(q["id"]) or res["answers"].get(str(q["id"])) or "_(미작성)_")
+            if sc.get("matched_keywords"):
+                st.success("포함된 키워드: " + " · ".join(sc["matched_keywords"]))
             with st.expander("해설 보기"):
-                st.write(f"정답: {q['answer']}")
-                st.write(f"설명: {q['explanation']}")
+                st.write(q["explanation"])
+                if sc.get("feedback"):
+                    st.caption(sc["feedback"])
 
-# ── 라우터
+
+# ══════════════════════════════════════════════════
+# 라우터
+# ══════════════════════════════════════════════════
 p = st.session_state.page
-if p == "login": page_login()
-elif p == "generate": page_generate()
-elif p == "taking": page_taking()
-elif p == "result": page_result(st.session_state.result)
-elif p == "hist_detail": page_result(st.session_state.hist_detail)
+if p == "login":
+    page_login()
+elif p == "generate":
+    page_generate()
+elif p == "taking":
+    page_taking()
+elif p == "result":
+    page_result(st.session_state.result)
+elif p == "hist_detail":
+    page_result(st.session_state.hist_detail)
