@@ -4,18 +4,22 @@ import json
 import datetime
 import hashlib
 import requests
-import time
 
+# ── 페이지 설정
 st.set_page_config(page_title="AI 퀴즈 생성기", page_icon="📝", layout="centered")
 
+# ── Supabase 헬퍼
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-OR_KEY       = st.secrets["OPENROUTER_API_KEY"]
+GROQ_KEY     = st.secrets["GROQ_API_KEY"]
 
-# ── Supabase 헬퍼
 def sb_headers():
-    return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
-            "Content-Type": "application/json", "Prefer": "return=representation"}
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
 
 def sb_select(table, filters=None, order=None):
     url = f"{SUPABASE_URL}/rest/v1/{table}?select=*"
@@ -29,31 +33,53 @@ def sb_select(table, filters=None, order=None):
 
 def sb_insert(table, data):
     url = f"{SUPABASE_URL}/rest/v1/{table}"
-    return requests.post(url, headers=sb_headers(), json=data).json()
+    res = requests.post(url, headers=sb_headers(), json=data)
+    return res.json()
 
-# ── OpenRouter 헬퍼
-def or_text(prompt):
+# ── Gemini API 호출
+def groq_text(prompt):
+    """텍스트 전용 Groq 호출"""
     res = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={"Authorization": f"Bearer {OR_KEY}", "Content-Type": "application/json"},
-        json={"model": "meta-llama/llama-3.3-70b-instruct:free",
-              "messages": [{"role": "user", "content": prompt}]}
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
+        json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "max_tokens": 4000}
     )
     data = res.json()
     if "choices" not in data:
-        st.error(f"OpenRouter 오류: {data.get('error', {}).get('message', str(data))}")
+        st.error(f"Groq 오류: {data.get('error', {}).get('message', str(data))}")
         st.stop()
     return data["choices"][0]["message"]["content"]
 
-def or_vision(img_b64, file_type):
+def extract_pdf_text(file_data):
+    """PDF 각 페이지를 이미지로 변환 후 vision으로 텍스트 추출"""
+    import fitz
+    import time
+    raw = base64.b64decode(file_data)
+    doc = fitz.open(stream=raw, filetype="pdf")
+    all_text = []
+    for i, page in enumerate(doc):
+        pix = page.get_pixmap(dpi=72)  # dpi 더 낮춰서 토큰 절약
+        img_b64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
+        text = extract_image_text(img_b64, "image/png")
+        all_text.append(f"[페이지 {i+1}]\n{text}")
+        if i < len(doc) - 1:
+            time.sleep(10)  # 페이지 사이 10초 대기
+    doc.close()
+    return "\n\n".join(all_text)
+
+def extract_image_text(file_data, file_type):
+    """이미지에서 Groq vision으로 텍스트 추출"""
     res = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={"Authorization": f"Bearer {OR_KEY}", "Content-Type": "application/json"},
-        json={"model": "meta-llama/llama-4-scout:free",
-              "messages": [{"role": "user", "content": [
-                  {"type": "image_url", "image_url": {"url": f"data:{file_type};base64,{img_b64}"}},
-                  {"type": "text", "text": "이 이미지의 모든 텍스트와 내용을 빠짐없이 추출해주세요."}
-              ]}]}
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
+        json={
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:{file_type};base64,{file_data}"}},
+                {"type": "text", "text": "이 이미지의 모든 텍스트와 내용을 상세히 추출해주세요."}
+            ]}],
+            "max_tokens": 4000
+        }
     )
     data = res.json()
     if "choices" not in data:
@@ -82,56 +108,49 @@ def score_color(s):
     if s >= 50: return "🟡"
     return "🔴"
 
-def extract_pdf_text(file_data):
-    import fitz
-    raw = base64.b64decode(file_data)
-    doc = fitz.open(stream=raw, filetype="pdf")
-    all_text = []
-    for i, page in enumerate(doc):
-        pix = page.get_pixmap(dpi=72)
-        img_b64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
-        text = or_vision(img_b64, "image/png")
-        all_text.append(f"[페이지 {i+1}]\n{text}")
-        if i < len(doc) - 1:
-            time.sleep(5)
-    doc.close()
-    return "\n\n".join(all_text)
-
 def generate_quiz(file_data, file_type, difficulty, types, count):
     type_desc = ", ".join(types)
     diff_desc = "기본 개념과 정의를 묻는" if difficulty == "개념" else "개념을 응용하고 분석하는"
     if file_type == "application/pdf":
         content_text = extract_pdf_text(file_data)
     else:
-        content_text = or_vision(file_data, file_type)
+        content_text = extract_image_text(file_data, file_type)
 
+    # 추출된 텍스트 확인
     if not content_text or len(content_text.strip()) < 50:
-        st.error(f"파일에서 내용을 추출하지 못했어요.")
+        st.error(f"PDF에서 텍스트를 추출하지 못했어요. 추출된 내용: {content_text[:200]}")
         st.stop()
 
+    st.info(f"📄 추출된 텍스트 미리보기 (앞 300자):\n{content_text[:300]}")
+
     prompt = f"""아래 문서 내용만을 바탕으로 {diff_desc} {type_desc} 문제를 정확히 {count}개 만들어주세요. 난이도: {difficulty}
-반드시 아래 JSON 형식만 출력하세요. 다른 텍스트 절대 없이.
+절대 문서 내용과 무관한 문제를 만들지 마세요. 반드시 JSON만 출력하세요.
 {{"title":"퀴즈 제목","keywords":["핵심키워드"],"questions":[{{"id":1,"type":"단답형 또는 서술형","question":"문제","answer":"모범답안","keywords":["채점키워드"],"explanation":"해설"}}]}}
 
 ===문서 내용===
 {content_text[:8000]}
 ===끝==="""
-    text = or_text(prompt)
+    text = groq_text(prompt)
     text = text.replace("```json", "").replace("```", "").strip()
+    # JSON 객체 또는 배열 시작/끝 위치 찾기
     obj_start = text.find("{")
     arr_start = text.find("[")
     if obj_start == -1 and arr_start == -1:
         st.error(f"AI 응답에서 JSON을 찾지 못했어요:\n{text[:500]}")
         st.stop()
+    # 객체와 배열 중 먼저 나오는 것 선택
     if arr_start != -1 and (obj_start == -1 or arr_start < obj_start):
-        start, end = arr_start, text.rfind("]") + 1
+        start = arr_start
+        end = text.rfind("]") + 1
         try:
-            return {"title": "퀴즈", "keywords": [], "questions": json.loads(text[start:end])}
+            questions = json.loads(text[start:end])
+            return {"title": "퀴즈", "keywords": [], "questions": questions}
         except json.JSONDecodeError as e:
             st.error(f"JSON 파싱 오류: {e}\n응답:\n{text[:500]}")
             st.stop()
     else:
-        start, end = obj_start, text.rfind("}") + 1
+        start = obj_start
+        end = text.rfind("}") + 1
         try:
             return json.loads(text[start:end])
         except json.JSONDecodeError as e:
@@ -147,7 +166,7 @@ def grade_quiz(quiz, answers):
 {{"scores":[{{"id":1,"score":0~100,"matched_keywords":["키워드"],"feedback":"피드백"}}],"total":0~100}}
 
 {json.dumps(grading_data, ensure_ascii=False)}"""
-    text = or_text(prompt)
+    text = groq_text(prompt)
     return json.loads(text.replace("```json", "").replace("```", "").strip())
 
 def save_result(result):
@@ -200,7 +219,8 @@ def page_login():
                 elif not name or not email:
                     st.error("이름과 이메일을 모두 입력해 주세요.")
                 else:
-                    if sb_select("users", filters={"email": email}):
+                    existing = sb_select("users", filters={"email": email})
+                    if existing:
                         st.error("이미 사용 중인 이메일이에요.")
                     else:
                         sb_insert("users", {"name": name, "email": email, "password": hash_pw(pw)})
@@ -230,7 +250,7 @@ def page_generate():
             types = st.multiselect("문제 유형", ["단답형", "서술형"], default=["단답형"])
         count = st.slider("문제 수", 3, 20, 5)
         if st.button("🚀 퀴즈 생성하기", disabled=not uploaded or not types):
-            with st.spinner("AI가 문서를 읽고 문제를 생성하고 있어요... (PDF는 시간이 걸릴 수 있어요)"):
+            with st.spinner("AI가 문제를 생성하고 있어요..."):
                 file_data = encode_file(uploaded)
                 quiz = generate_quiz(file_data, uploaded.type, difficulty, types, count)
                 st.session_state.quiz = quiz
