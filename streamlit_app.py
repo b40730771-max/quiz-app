@@ -51,16 +51,20 @@ def groq_text(prompt):
     return data["choices"][0]["message"]["content"]
 
 def extract_pdf_text(file_data):
-    """PDF를 텍스트로 추출"""
-    import base64, io
-    try:
-        import pdfplumber
-        raw = base64.b64decode(file_data)
-        with pdfplumber.open(io.BytesIO(raw)) as pdf:
-            return "\n".join(p.extract_text() or "" for p in pdf.pages)
-    except Exception as e:
-        st.error(f"PDF 텍스트 추출 실패: {e}")
-        st.stop()
+    """PDF 각 페이지를 이미지로 변환 후 vision으로 텍스트 추출"""
+    import fitz  # PyMuPDF
+    import io
+    raw = base64.b64decode(file_data)
+    doc = fitz.open(stream=raw, filetype="pdf")
+    all_text = []
+    for page in doc:
+        pix = page.get_pixmap(dpi=150)
+        img_bytes = pix.tobytes("png")
+        img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+        text = extract_image_text(img_b64, "image/png")
+        all_text.append(text)
+    doc.close()
+    return "\n\n".join(all_text)
 
 def extract_image_text(file_data, file_type):
     """이미지에서 Groq vision으로 텍스트 추출"""
