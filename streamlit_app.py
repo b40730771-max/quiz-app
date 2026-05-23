@@ -11,7 +11,7 @@ st.set_page_config(page_title="AI 퀴즈 생성기", page_icon="📝", layout="c
 # ── Supabase 헬퍼
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-GEMINI_KEY   = st.secrets["GEMINI_API_KEY"]
+GROQ_KEY     = st.secrets["GROQ_API_KEY"]
 
 def sb_headers():
     return {
@@ -37,20 +37,50 @@ def sb_insert(table, data):
     return res.json()
 
 # ── Gemini API 호출
-def gemini(prompt, file_data=None, file_type=None):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={GEMINI_KEY}"
-    parts = []
-    if file_data and file_type:
-        parts.append({"inline_data": {"mime_type": file_type, "data": file_data}})
-    parts.append({"text": prompt})
-    body = {"contents": [{"parts": parts}]}
-    res = requests.post(url, json=body)
+def groq_text(prompt):
+    """텍스트 전용 Groq 호출"""
+    res = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
+        json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "max_tokens": 4000}
+    )
     data = res.json()
-    if "candidates" not in data:
-        error_msg = data.get("error", {}).get("message", str(data))
-        st.error(f"Gemini 오류: {error_msg}")
+    if "choices" not in data:
+        st.error(f"Groq 오류: {data.get('error', {}).get('message', str(data))}")
         st.stop()
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    return data["choices"][0]["message"]["content"]
+
+def extract_pdf_text(file_data):
+    """PDF를 텍스트로 추출"""
+    import base64, io
+    try:
+        import pdfplumber
+        raw = base64.b64decode(file_data)
+        with pdfplumber.open(io.BytesIO(raw)) as pdf:
+            return "\n".join(p.extract_text() or "" for p in pdf.pages)
+    except Exception as e:
+        st.error(f"PDF 텍스트 추출 실패: {e}")
+        st.stop()
+
+def extract_image_text(file_data, file_type):
+    """이미지에서 Groq vision으로 텍스트 추출"""
+    res = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
+        json={
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:{file_type};base64,{file_data}"}},
+                {"type": "text", "text": "이 이미지의 모든 텍스트와 내용을 상세히 추출해주세요."}
+            ]}],
+            "max_tokens": 4000
+        }
+    )
+    data = res.json()
+    if "choices" not in data:
+        st.error(f"이미지 분석 오류: {data.get('error', {}).get('message', str(data))}")
+        st.stop()
+    return data["choices"][0]["message"]["content"]
 
 # ── 세션 초기화
 defaults = {"user": None, "quiz": None, "answers": {}, "result": None,
@@ -76,10 +106,17 @@ def score_color(s):
 def generate_quiz(file_data, file_type, difficulty, types, count):
     type_desc = ", ".join(types)
     diff_desc = "기본 개념과 정의를 묻는" if difficulty == "개념" else "개념을 응용하고 분석하는"
-    prompt = f"""위 문서를 분석하여 {diff_desc} {type_desc} 문제를 정확히 {count}개 만들어주세요. 난이도: {difficulty}
-반드시 아래 JSON 형식만 출력하세요. 다른 텍스트는 절대 포함하지 마세요.
-{{"title":"퀴즈 제목","keywords":["핵심키워드"],"questions":[{{"id":1,"type":"단답형 또는 서술형","question":"문제","answer":"모범답안","keywords":["채점키워드"],"explanation":"해설"}}]}}"""
-    text = gemini(prompt, file_data, file_type)
+    if file_type == "application/pdf":
+        content_text = extract_pdf_text(file_data)
+    else:
+        content_text = extract_image_text(file_data, file_type)
+    prompt = f"""다음 문서 내용을 분석하여 {diff_desc} {type_desc} 문제를 정확히 {count}개 만들어주세요. 난이도: {difficulty}
+반드시 JSON만 출력하세요. 다른 텍스트 없이.
+{{"title":"퀴즈 제목","keywords":["핵심키워드"],"questions":[{{"id":1,"type":"단답형 또는 서술형","question":"문제","answer":"모범답안","keywords":["채점키워드"],"explanation":"해설"}}]}}
+
+문서 내용:
+{content_text[:8000]}"""
+    text = groq_text(prompt)
     return json.loads(text.replace("```json", "").replace("```", "").strip())
 
 def grade_quiz(quiz, answers):
@@ -91,7 +128,7 @@ def grade_quiz(quiz, answers):
 {{"scores":[{{"id":1,"score":0~100,"matched_keywords":["키워드"],"feedback":"피드백"}}],"total":0~100}}
 
 {json.dumps(grading_data, ensure_ascii=False)}"""
-    text = gemini(prompt)
+    text = groq_text(prompt)
     return json.loads(text.replace("```json", "").replace("```", "").strip())
 
 def save_result(result):
